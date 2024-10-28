@@ -2,8 +2,15 @@ import uproot
 import pandas as pd
 import psycopg2
 
+# Set up argument parser
+parser = argparse.ArgumentParser(description='Process ROOT file and insert data into PostgreSQL.')
+parser.add_argument('--root_file', type=str, required=True, help='Path to the ROOT file.')
+parser.add_argument('--lower_threshold', type=float, required=True, help='Lower threshold for identifying dead cells.')
+parser.add_argument('--upper_threshold', type=float, required=True, help='Upper threshold for identifying noisy cells.')
+args = parser.parse_args()
+
 # Open the ROOT file
-root_file = uproot.open("/Users/chenhua/root_file/pedestal_run0_M84.root")
+root_file = uproot.open(args.root_file)
 
 # Access the tree (replace 'runsummary/summary' with your actual path)
 tree = root_file["runsummary/summary"]
@@ -45,7 +52,7 @@ a = -100  # Using a list to allow modification in inner function
 # Connect to PostgreSQL database
 conn = psycopg2.connect(
     dbname="hgcdb",
-    user="teststand_user",
+    user="postgres",
     password="33665146",
     host="localhost",
     port="5432"
@@ -119,7 +126,7 @@ SET
     count_bad_cells = (
         SELECT COUNT(*)
         FROM unnest(adc_stdd) AS stdd
-        WHERE stdd < 0.1 OR stdd > 2
+        WHERE stdd < {args.lower_threshold} OR stdd > {args.upper_threshold}
     );
 """)
 
@@ -131,8 +138,8 @@ SET
 FROM (
     SELECT 
         mod_pedtest_no,  -- Assuming there's a unique identifier column named 'mod_pedtest_no'
-        array_agg(CASE WHEN stdd.value < 0.1 THEN c.val END) FILTER (WHERE stdd.value < 0.1) AS list_dead_cells,
-        array_agg(CASE WHEN stdd.value > 2 THEN c.val END) FILTER (WHERE stdd.value > 2) AS list_noisy_cells
+        array_agg(CASE WHEN stdd.value < {args.lower_threshold} THEN c.val END) FILTER (WHERE stdd.value < {args.lower_threshold}) AS list_dead_cells,
+        array_agg(CASE WHEN stdd.value > {args.upper_threshold} THEN c.val END) FILTER (WHERE stdd.value > {args.upper_threshold}) AS list_noisy_cells
     FROM module_pedestal_test
     CROSS JOIN LATERAL unnest(adc_stdd) WITH ORDINALITY AS stdd(value, idx)
     CROSS JOIN LATERAL unnest(cell) WITH ORDINALITY AS c(val, idx2)
