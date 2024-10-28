@@ -1,6 +1,7 @@
 import uproot
 import pandas as pd
 import psycopg2
+import argparse
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description='Process ROOT file and insert data into PostgreSQL.')
@@ -119,18 +120,18 @@ cur.execute(insert_query, (
 #         row['cell']
 #     ))
 
-# Update module_pedestal_test
-cur.execute("""
+cur.execute(f"""
 UPDATE module_pedestal_test
 SET 
     count_bad_cells = (
         SELECT COUNT(*)
         FROM unnest(adc_stdd) AS stdd
-        WHERE stdd < {args.lower_threshold} OR stdd > {args.upper_threshold}
-    );
-""")
+        WHERE stdd < %s OR stdd > %s
+    )
+""", (args.lower_threshold, args.upper_threshold))
 
-cur.execute("""
+# Update list_dead_cells and list_noisy_cells with dynamic thresholds
+cur.execute(f"""
 UPDATE module_pedestal_test
 SET
     list_dead_cells = subquery.list_dead_cells,
@@ -138,8 +139,10 @@ SET
 FROM (
     SELECT 
         mod_pedtest_no,  -- Assuming there's a unique identifier column named 'mod_pedtest_no'
-        array_agg(CASE WHEN stdd.value < {args.lower_threshold} THEN c.val END) FILTER (WHERE stdd.value < {args.lower_threshold}) AS list_dead_cells,
-        array_agg(CASE WHEN stdd.value > {args.upper_threshold} THEN c.val END) FILTER (WHERE stdd.value > {args.upper_threshold}) AS list_noisy_cells
+        array_agg(CASE WHEN stdd.value < %s THEN c.val END) 
+        FILTER (WHERE stdd.value < %s) AS list_dead_cells,
+        array_agg(CASE WHEN stdd.value > %s THEN c.val END) 
+        FILTER (WHERE stdd.value > %s) AS list_noisy_cells
     FROM module_pedestal_test
     CROSS JOIN LATERAL unnest(adc_stdd) WITH ORDINALITY AS stdd(value, idx)
     CROSS JOIN LATERAL unnest(cell) WITH ORDINALITY AS c(val, idx2)
@@ -147,7 +150,7 @@ FROM (
     GROUP BY mod_pedtest_no
 ) AS subquery
 WHERE module_pedestal_test.mod_pedtest_no = subquery.mod_pedtest_no;
-""")
+""", (args.lower_threshold, args.lower_threshold, args.upper_threshold, args.upper_threshold))
 
 # Insert into module_qc_summary
 cur.execute("""
