@@ -19,7 +19,7 @@ tree = root_file["runsummary/summary"]
 df = tree.arrays(library="pd")
 
 cell_mapping = {}
-with open('/Users/chenhua/WaferCellMapTraces.txt', 'r') as file:
+with open('./WaferCellMapTraces.txt', 'r') as file:
     next(file)
     for line in file:
         if line.strip():  # Skip empty lines
